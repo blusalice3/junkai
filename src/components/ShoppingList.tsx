@@ -1,4 +1,3 @@
-
 import React, { useRef } from 'react';
 import { ShoppingItem } from '../types';
 import ShoppingItemCard from './ShoppingItemCard';
@@ -66,7 +65,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
     }
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = () => {
     if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
       onMoveItem(dragItem.current, dragOverItem.current);
     }
