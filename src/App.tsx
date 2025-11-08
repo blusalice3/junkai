@@ -695,12 +695,13 @@ const App: React.FC = () => {
       newItems = newItems.map(item => updateMap.get(item.id) || item);
       
       // 追加（ソート挿入）
-      itemsToAdd.forEach(itemData => {
-        const newItem: ShoppingItem = {
-          id: crypto.randomUUID(),
-          ...itemData,
-          purchaseStatus: 'None'
-        };
+      const newItemsWithIds: ShoppingItem[] = itemsToAdd.map(itemData => ({
+        id: crypto.randomUUID(),
+        ...itemData,
+        purchaseStatus: 'None' as const
+      }));
+      
+      newItemsWithIds.forEach(newItem => {
         newItems = insertItemSorted(newItems, newItem);
       });
       
