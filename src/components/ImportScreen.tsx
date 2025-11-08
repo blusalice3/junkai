@@ -217,13 +217,13 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBulkAdd, activeEventName,
         cells.push(currentCell);
 
         // Assuming columns: サークル名, 参加日, ブロック, ナンバー, タイトル, 頒布価格, (購入状態), 備考
-        cols.circles.push(cells[0] || '');
-        cols.eventDates.push(cells[1] || '');
-        cols.blocks.push(cells[2] || '');
-        cols.numbers.push(cells[3] || '');
-        cols.titles.push(cells[4] || '');
-        cols.prices.push((cells[5] || '0').replace(/[^0-9]/g, ''));
-        cols.remarks.push(cells[7] || '');
+        cols.circles.push(cells[12] || '');
+        cols.eventDates.push(cells[13] || '');
+        cols.blocks.push(cells[14] || '');
+        cols.numbers.push(cells[15] || '');
+        cols.titles.push(cells[16] || '');
+        cols.prices.push((cells[17] || '0').replace(/[^0-9]/g, ''));
+        cols.remarks.push(cells[22] || '');
       }
 
       setCircles(cols.circles.join('\n'));
