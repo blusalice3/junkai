@@ -28,8 +28,8 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   onDeleteRequest,
   selectedItemIds,
   onSelectItem,
-  onMoveToColumn,
-  onRemoveFromColumn,
+  onMoveToColumn: _onMoveToColumn,
+  onRemoveFromColumn: _onRemoveFromColumn,
   columnType,
 }) => {
   const dragItem = useRef<string | null>(null);
