@@ -630,9 +630,7 @@ const App: React.FC = () => {
       }
 
       const currentItems = eventLists[eventName] || [];
-      const sheetItemsMap = new Map<string, Omit<ShoppingItem, 'id' | 'purchaseStatus'>>(
-        sheetItems.map(item => [getItemKey(item), item])
-      );
+      const sheetItemsMap = new Map(sheetItems.map(item => [getItemKey(item), item]));
       const currentItemsMap = new Map(currentItems.map(item => [getItemKey(item), item]));
 
       const itemsToDelete: ShoppingItem[] = [];
@@ -670,11 +668,7 @@ const App: React.FC = () => {
         }
       });
 
-      setUpdateData({ 
-        itemsToDelete, 
-        itemsToUpdate, 
-        itemsToAdd
-      });
+      setUpdateData({ itemsToDelete, itemsToUpdate, itemsToAdd });
       setShowUpdateConfirmation(true);
 
     } catch (error) {
@@ -690,7 +684,7 @@ const App: React.FC = () => {
     const { itemsToDelete, itemsToUpdate, itemsToAdd } = updateData;
     
     setEventLists(prev => {
-      let newItems: ShoppingItem[] = [...(prev[activeEventName] || [])];
+      let newItems = [...(prev[activeEventName] || [])];
       
       // 削除
       const deleteIds = new Set(itemsToDelete.map(item => item.id));
@@ -704,13 +698,7 @@ const App: React.FC = () => {
       itemsToAdd.forEach(itemData => {
         const newItem: ShoppingItem = {
           id: crypto.randomUUID(),
-          circle: itemData.circle,
-          eventDate: itemData.eventDate,
-          block: itemData.block,
-          number: itemData.number,
-          title: itemData.title,
-          price: itemData.price,
-          remarks: itemData.remarks,
+          ...itemData,
           purchaseStatus: 'None'
         };
         newItems = insertItemSorted(newItems, newItem);
@@ -755,7 +743,7 @@ const App: React.FC = () => {
     const [showModeMenu, setShowModeMenu] = useState(false);
     const longPressTimeout = React.useRef<number | null>(null);
 
-    const handlePointerDown = () => {
+    const handlePointerDown = (e: React.PointerEvent) => {
       if (tab !== 'day1' && tab !== 'day2') return;
       if (!activeEventName) return;
       
