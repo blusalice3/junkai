@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { ShoppingItem } from '../types';
 
 interface ImportScreenProps {
@@ -13,12 +13,14 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBulkAdd, activeEventName,
   // State for bulk add (creating new list)
   const [eventName, setEventName] = useState('');
   const [circles, setCircles] = useState('');
-  const [eventDates, setEventDates] =useState('');
+  const [eventDates, setEventDates] = useState('');
   const [blocks, setBlocks] = useState('');
   const [numbers, setNumbers] = useState('');
   const [titles, setTitles] = useState('');
   const [prices, setPrices] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [spreadsheetUrl, setSpreadsheetUrl] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // State for single item add/edit
   const [singleCircle, setSingleCircle] = useState('');
@@ -69,6 +71,130 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBulkAdd, activeEventName,
     setNumbers(cols.numbers.join('\n'));
     setTitles(cols.titles.join('\n'));
     setPrices(cols.prices.join('\n'));
+  };
+
+  const parseCSVLine = (line: string): string[] => {
+    const cells: string[] = [];
+    let currentCell = '';
+    let insideQuotes = false;
+
+    for (let j = 0; j < line.length; j++) {
+      const char = line[j];
+      
+      if (char === '"') {
+        if (insideQuotes && line[j + 1] === '"') {
+          currentCell += '"';
+          j++;
+        } else {
+          insideQuotes = !insideQuotes;
+        }
+      } else if (char === ',' && !insideQuotes) {
+        cells.push(currentCell);
+        currentCell = '';
+      } else {
+        currentCell += char;
+      }
+    }
+    cells.push(currentCell);
+    return cells;
+  };
+
+  const processImportData = (lines: string[]): Omit<ShoppingItem, 'id' | 'purchaseStatus'>[] => {
+    const newItems: Omit<ShoppingItem, 'id' | 'purchaseStatus'>[] = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+      
+      const cells = parseCSVLine(line);
+      
+      // M列(0), N列(1), O列(2), P列(3)が全て入力されている行のみをインポート
+      const circle = cells[12]?.trim() || ''; // M列 (0-indexed: 12)
+      const eventDate = cells[13]?.trim() || ''; // N列 (0-indexed: 13)
+      const block = cells[14]?.trim() || ''; // O列 (0-indexed: 14)
+      const number = cells[15]?.trim() || ''; // P列 (0-indexed: 15)
+      
+      if (!circle || !eventDate || !block || !number) {
+        continue;
+      }
+      
+      const title = cells[16]?.trim() || ''; // Q列 (0-indexed: 16)
+      const price = parseInt((cells[17] || '0').replace(/[^0-9]/g, ''), 10) || 0; // R列 (0-indexed: 17)
+      const remarks = cells[22]?.trim() || ''; // W列 (0-indexed: 22)
+      
+      newItems.push({
+        circle,
+        eventDate,
+        block,
+        number,
+        title,
+        price,
+        remarks,
+      });
+    }
+    
+    return newItems;
+  };
+
+  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const text = await file.text();
+    const lines = text.split('\n').filter(line => line.trim() !== '');
+    const newItems = processImportData(lines);
+    
+    if (newItems.length > 0) {
+      onBulkAdd(eventName || 'インポートリスト', newItems);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      alert(`${newItems.length}件のアイテムをインポートしました。`);
+    } else {
+      alert('インポートできるデータが見つかりませんでした。M列からP列の値が全て入力されている行が必要です。');
+    }
+  };
+
+  const handleUrlImport = async () => {
+    if (!spreadsheetUrl.trim()) {
+      alert('スプレッドシートのURLを入力してください。');
+      return;
+    }
+
+    if (!eventName.trim()) {
+      alert('即売会名を入力してください。');
+      return;
+    }
+
+    try {
+      const sheetIdMatch = spreadsheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+      if (!sheetIdMatch) {
+        throw new Error('無効なURL');
+      }
+
+      const sheetName = '品目表';
+      const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetIdMatch[1]}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+      
+      const response = await fetch(csvUrl);
+      if (!response.ok) {
+        throw new Error('スプレッドシートの読み込みに失敗しました。');
+      }
+
+      const text = await response.text();
+      const lines = text.split('\n').filter(line => line.trim() !== '');
+      const newItems = processImportData(lines);
+      
+      if (newItems.length > 0) {
+        onBulkAdd(eventName.trim(), newItems, { url: spreadsheetUrl, sheetName });
+        setSpreadsheetUrl('');
+        alert(`${newItems.length}件のアイテムをインポートしました。`);
+      } else {
+        alert('インポートできるデータが見つかりませんでした。M列からP列の値が全て入力されている行が必要です。');
+      }
+    } catch (error) {
+      console.error('Import error:', error);
+      alert('スプレッドシートのインポートに失敗しました。URLが正しいか確認してください。');
+    }
   };
   
   const resetSingleForm = () => {
@@ -126,23 +252,24 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBulkAdd, activeEventName,
       const newItems: Omit<ShoppingItem, 'id' | 'purchaseStatus'>[] = [];
       for (let i = 0; i < numItems; i++) {
         const circle = circlesArr[i] || '';
+        const eventDate = eventDatesArr[i] || '';
         const block = blocksArr[i] || '';
         const number = numbersArr[i] || '';
-        // ブロック列とナンバー列の値が入力されているもののみをインポート
-        if (!block || !number) {
+        // M列からP列（サークル、参加日、ブロック、ナンバー）の値が全て入力されている行のみをインポート
+        if (!circle || !eventDate || !block || !number) {
           continue;
         }
         const priceString = (pricesArr[i] || '0').replace(/[^0-9]/g, '');
         const price = parseInt(priceString, 10) || 0;
         newItems.push({
-          circle, eventDate: eventDatesArr[i] || '1日目', block, number, title: titlesArr[i] || '', price: price, remarks: remarksArr[i] || '',
+          circle, eventDate, block, number, title: titlesArr[i] || '', price: price, remarks: remarksArr[i] || '',
         });
       }
       if (newItems.length > 0) {
           onBulkAdd(finalEventName, newItems);
           setEventName(''); setCircles(''); setEventDates(''); setBlocks(''); setNumbers(''); setTitles(''); setPrices(''); setRemarks('');
       } else {
-          alert('有効なアイテムデータが見つかりませんでした。必須項目が入力されているか確認してください。');
+          alert('有効なアイテムデータが見つかりませんでした。M列からP列の値が全て入力されている行が必要です。');
       }
     } else { // Adding single item to existing list
         if (!singleCircle.trim() && !singleTitle.trim()) {
@@ -215,6 +342,51 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBulkAdd, activeEventName,
                         required 
                     />
                 </div>
+                
+                {/* インポート方法の選択 */}
+                <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">インポート方法</h3>
+                  
+                  {/* URLインポート */}
+                  <div className="mb-4">
+                    <label htmlFor="spreadsheetUrl" className={labelClass}>スプレッドシートURLからインポート</label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        id="spreadsheetUrl" 
+                        value={spreadsheetUrl} 
+                        onChange={e => setSpreadsheetUrl(e.target.value)}
+                        className={formInputClass}
+                        placeholder="https://docs.google.com/spreadsheets/d/..."
+                      />
+                      <button
+                        type="button"
+                        onClick={handleUrlImport}
+                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors whitespace-nowrap"
+                      >
+                        URLからインポート
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">シート名「品目表」のM列からR列とW列をインポートします</p>
+                  </div>
+                  
+                  {/* CSVファイルインポート */}
+                  <div className="mb-4">
+                    <label htmlFor="csvFile" className={labelClass}>CSVファイルからインポート</label>
+                    <input
+                      type="file"
+                      id="csvFile"
+                      ref={fileInputRef}
+                      accept=".csv"
+                      onChange={handleFileImport}
+                      className={formInputClass}
+                    />
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">M列からP列の値が全て入力されている行のみをインポートします</p>
+                  </div>
+                  
+                  <div className="text-center text-slate-500 dark:text-slate-400 my-4">または</div>
+                </div>
+                
                 <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                     <div className="md:col-span-1"><label htmlFor="circles" className={labelClass}>サークル名 (M)</label><textarea id="circles" value={circles} onChange={e => setCircles(e.target.value)} onPaste={handlePaste} className={formTextareaClass} placeholder="サークルA&#10;サークルB" /></div>
                     <div className="md:col-span-1"><label htmlFor="event-dates" className={labelClass}>参加日 (N)</label><textarea id="event-dates" value={eventDates} onChange={e => setEventDates(e.target.value)} className={formTextareaClass} placeholder="1日目&#10;2日目" /></div>
