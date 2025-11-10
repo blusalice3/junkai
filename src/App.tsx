@@ -707,18 +707,28 @@ const App: React.FC = () => {
         }
         cells.push(currentCell);
 
-        const block = cells[2]?.trim() || '';
-        const number = cells[3]?.trim() || '';
-        if (!block || !number) continue;
+        // M列(12), N列(13), O列(14), P列(15)が全て入力されている行のみをインポート
+        const circle = cells[12]?.trim() || ''; // M列 (0-indexed: 12)
+        const eventDate = cells[13]?.trim() || ''; // N列 (0-indexed: 13)
+        const block = cells[14]?.trim() || ''; // O列 (0-indexed: 14)
+        const number = cells[15]?.trim() || ''; // P列 (0-indexed: 15)
+        
+        if (!circle || !eventDate || !block || !number) {
+          continue;
+        }
+
+        const title = cells[16]?.trim() || ''; // Q列 (0-indexed: 16)
+        const price = parseInt((cells[17] || '0').replace(/[^0-9]/g, ''), 10) || 0; // R列 (0-indexed: 17)
+        const remarks = cells[22]?.trim() || ''; // W列 (0-indexed: 22)
 
         sheetItems.push({
-          circle: cells[0]?.trim() || '',
-          eventDate: cells[1]?.trim() || '1日目',
+          circle,
+          eventDate,
           block,
           number,
-          title: cells[4]?.trim() || '',
-          price: parseInt((cells[5] || '0').replace(/[^0-9]/g, ''), 10) || 0,
-          remarks: cells[7]?.trim() || ''
+          title,
+          price,
+          remarks
         });
       }
 
@@ -903,7 +913,7 @@ const App: React.FC = () => {
               : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
           }`}
         >
-          {label} {typeof count !== 'undefined' && <span className="text-xs bg-slate-200 dark:bg-slate-700 rounded-full px-2 py-0.5 ml-1">{count}</span>}
+          {label} {typeof count !== 'undefined' && <span className="text-xs bg-slate-200 dark:text-slate-700 rounded-full px-2 py-0.5 ml-1">{count}</span>}
         </button>
       </div>
     );
@@ -1163,8 +1173,10 @@ const App: React.FC = () => {
       {activeEventName && items.length > 0 && mainContentVisible && (
         <>
           {currentMode === 'execute' && <SummaryBar items={visibleItems} />}
-          <ZoomControl zoomLevel={zoomLevel} onZoomChange={handleZoomChange} />
         </>
+      )}
+      {activeEventName && items.length > 0 && mainContentVisible && (
+        <ZoomControl zoomLevel={zoomLevel} onZoomChange={handleZoomChange} />
       )}
     </div>
   );
