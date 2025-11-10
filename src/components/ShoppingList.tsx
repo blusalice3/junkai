@@ -13,6 +13,7 @@ interface ShoppingListProps {
   onMoveToColumn?: (itemIds: string[]) => void;
   onRemoveFromColumn?: (itemIds: string[]) => void;
   columnType?: 'execute' | 'candidate';
+  currentDay?: 'day1' | 'day2';
 }
 
 // Constants for drag-and-drop auto-scrolling
@@ -29,20 +30,27 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   selectedItemIds,
   onSelectItem,
   onMoveToColumn,
-  onRemoveFromColumn: _onRemoveFromColumn,
+  onRemoveFromColumn,
   columnType,
+  currentDay,
 }) => {
   const dragItem = useRef<string | null>(null);
   const dragOverItem = useRef<string | null>(null);
   const dragOverIndex = useRef<number | null>(null);
   const [insertPosition, setInsertPosition] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const dragSourceDay = useRef<'day1' | 'day2' | null>(null);
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, item: ShoppingItem) => {
     dragItem.current = item.id;
+    dragSourceDay.current = currentDay || null;
     if (columnType) {
       e.dataTransfer.setData('sourceColumn', columnType);
     }
+    if (currentDay) {
+      e.dataTransfer.setData('sourceDay', currentDay);
+    }
+    e.dataTransfer.setData('dragItemId', item.id);
     const target = e.currentTarget;
     setTimeout(() => {
         if(target) {
@@ -79,8 +87,9 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
     // 画面幅の1/3を閾値として使用
     const threshold = windowWidth / 3;
     
-    // 候補リストから実行モード列への移動判定
     const sourceColumn = e.dataTransfer.getData('sourceColumn') as 'execute' | 'candidate' | undefined;
+    
+    // 候補リストから実行モード列への移動判定
     if (e.clientX < centerX - threshold && columnType === 'execute' && sourceColumn === 'candidate' && onMoveToColumn) {
       // 実行モード列内での挿入位置表示
       const rect = e.currentTarget.getBoundingClientRect();
@@ -88,6 +97,9 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
       const itemHeight = items.length > 0 ? rect.height / items.length : 0;
       const insertIndex = itemHeight > 0 ? Math.floor(relativeY / itemHeight) : 0;
       setInsertPosition(insertIndex);
+    } else if (e.clientX > centerX + threshold && columnType === 'candidate' && sourceColumn === 'execute' && onRemoveFromColumn) {
+      // 実行モード列から候補リストへの移動判定（候補リスト側でのドラッグオーバー時は挿入位置を表示しない）
+      setInsertPosition(null);
     } else {
       setInsertPosition(null);
     }
@@ -107,10 +119,21 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
     const centerX = windowWidth / 2;
     const targetColumn = columnType;
     const sourceColumn = e.dataTransfer.getData('sourceColumn') as 'execute' | 'candidate' | undefined;
+    const sourceDay = e.dataTransfer.getData('sourceDay') as 'day1' | 'day2' | undefined;
+    
+    // 同じタブ内での列間移動のみ許可
+    if (sourceDay && currentDay && sourceDay !== currentDay) {
+      // 別のタブからのドロップは無視
+      setInsertPosition(null);
+      dragItem.current = null;
+      dragOverItem.current = null;
+      dragSourceDay.current = null;
+      return;
+    }
     
     // 候補リストから実行モード列への移動判定
     if (targetColumn === 'execute' && sourceColumn === 'candidate' && onMoveToColumn) {
-      // ドロップ位置が画面中央より左にある場合（より寛容な条件）
+      // ドロップ位置が画面中央より左にある場合
       if (e.clientX < centerX) {
         if (dragItem.current && selectedItemIds.has(dragItem.current)) {
           onMoveToColumn(Array.from(selectedItemIds));
@@ -120,13 +143,31 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
         setInsertPosition(null);
         dragItem.current = null;
         dragOverItem.current = null;
+        dragSourceDay.current = null;
+        return;
+      }
+    }
+    
+    // 実行モード列から候補リストへの移動判定
+    if (targetColumn === 'candidate' && sourceColumn === 'execute' && onRemoveFromColumn) {
+      // ドロップ位置が画面中央より右にある場合
+      if (e.clientX > centerX) {
+        if (dragItem.current && selectedItemIds.has(dragItem.current)) {
+          onRemoveFromColumn(Array.from(selectedItemIds));
+        } else if (dragItem.current) {
+          onRemoveFromColumn([dragItem.current]);
+        }
+        setInsertPosition(null);
+        dragItem.current = null;
+        dragOverItem.current = null;
+        dragSourceDay.current = null;
         return;
       }
     }
     
     // 同じ列内での移動
     if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
-      if (sourceColumn === targetColumn) {
+      if (sourceColumn === targetColumn && sourceDay === currentDay) {
         onMoveItem(dragItem.current, dragOverItem.current, columnType);
       }
     }
@@ -134,6 +175,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
     setInsertPosition(null);
     dragItem.current = null;
     dragOverItem.current = null;
+    dragSourceDay.current = null;
   };
 
   const handleDragEnd = (e: React.DragEvent<HTMLDivElement>) => {
@@ -142,6 +184,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
     dragItem.current = null;
     dragOverItem.current = null;
     dragOverIndex.current = null;
+    dragSourceDay.current = null;
     setInsertPosition(null);
     e.dataTransfer.clearData();
   };
@@ -168,6 +211,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
             e.stopPropagation();
             e.currentTarget.classList.remove('bg-blue-50', 'dark:bg-blue-900/20');
             const sourceColumn = e.dataTransfer.getData('sourceColumn') as 'execute' | 'candidate' | undefined;
+            const sourceDay = e.dataTransfer.getData('sourceDay') as 'day1' | 'day2' | undefined;
             const windowWidth = window.innerWidth;
             const centerX = windowWidth / 2;
             // 空のリストへのドロップも処理
@@ -184,6 +228,22 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
                 }
               }
             }
+            // 実行モード列から候補リストへの移動判定
+            if (columnType === 'candidate' && sourceColumn === 'execute' && onRemoveFromColumn) {
+              // ドロップ位置が画面中央より右にある場合
+              if (e.clientX > centerX) {
+                const dragId = dragItem.current;
+                if (dragId) {
+                  if (selectedItemIds.has(dragId)) {
+                    onRemoveFromColumn(Array.from(selectedItemIds));
+                  } else {
+                    onRemoveFromColumn([dragId]);
+                  }
+                }
+              }
+            }
+            dragItem.current = null;
+            dragSourceDay.current = null;
           }}
         >
           この日のアイテムはありません。
@@ -206,6 +266,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
           e.preventDefault();
           e.stopPropagation();
           const sourceColumn = e.dataTransfer.getData('sourceColumn') as 'execute' | 'candidate' | undefined;
+          const sourceDay = e.dataTransfer.getData('sourceDay') as 'day1' | 'day2' | undefined;
           const windowWidth = window.innerWidth;
           const centerX = windowWidth / 2;
           // コンテナ全体へのドロップも処理
@@ -218,6 +279,20 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
                   onMoveToColumn(Array.from(selectedItemIds));
                 } else {
                   onMoveToColumn([dragId]);
+                }
+              }
+            }
+          }
+          // 実行モード列から候補リストへの移動判定
+          if (columnType === 'candidate' && sourceColumn === 'execute' && onRemoveFromColumn) {
+            // ドロップ位置が画面中央より右にある場合
+            if (e.clientX > centerX) {
+              const dragId = dragItem.current;
+              if (dragId) {
+                if (selectedItemIds.has(dragId)) {
+                  onRemoveFromColumn(Array.from(selectedItemIds));
+                } else {
+                  onRemoveFromColumn([dragId]);
                 }
               }
             }
@@ -273,3 +348,4 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
 };
 
 export default ShoppingList;
+
