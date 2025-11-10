@@ -29,7 +29,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({
   selectedItemIds,
   onSelectItem,
   onMoveToColumn,
-  onRemoveFromColumn,
+  onRemoveFromColumn: _onRemoveFromColumn,
   columnType,
 }) => {
   const dragItem = useRef<string | null>(null);
