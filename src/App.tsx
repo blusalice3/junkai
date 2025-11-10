@@ -801,7 +801,7 @@ const App: React.FC = () => {
     }
   }, [eventLists, eventMetadata]);
 
-  const handleConfirmUpdate = useCallback(() => {
+  const handleConfirmUpdate = () => {
     if (!updateData || !activeEventName) return;
 
     const { itemsToDelete, itemsToUpdate, itemsToAdd } = updateData;
@@ -856,7 +856,7 @@ const App: React.FC = () => {
     setShowUpdateConfirmation(false);
     setUpdateData(null);
     alert('アイテムを更新しました。');
-  }, [updateData, activeEventName]);
+  };
 
   const handleUrlUpdate = useCallback((newUrl: string, sheetName: string) => {
     setShowUrlUpdateDialog(false);
