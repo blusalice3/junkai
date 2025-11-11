@@ -16,15 +16,16 @@ interface ShoppingItemCardProps {
   onDeleteRequest: (item: ShoppingItem) => void;
   isSelected: boolean;
   onSelectItem: (itemId: string) => void;
+  blockBackgroundColor?: string;
 }
 
 const statusConfig: Record<PurchaseStatus, { label: string; icon: React.FC<any>; color: string; dim: boolean; bg: string; }> = {
   None: { label: '未購入', icon: CircleIcon, color: 'text-slate-400 dark:text-slate-500', dim: false, bg: '' },
-  Purchased: { label: '購入済', icon: CheckCircleIcon, color: 'text-green-500', dim: true, bg: 'bg-green-500/10 dark:bg-green-500/20' },
-  SoldOut: { label: '売切', icon: XCircleIcon, color: 'text-red-500', dim: true, bg: 'bg-red-500/10 dark:bg-red-500/20' },
-  Absent: { label: '欠席', icon: MinusCircleIcon, color: 'text-yellow-500', dim: true, bg: 'bg-yellow-500/10 dark:bg-yellow-500/20' },
-  Postpone: { label: '後回し', icon: PauseCircleIcon, color: 'text-purple-500', dim: false, bg: 'bg-purple-500/10 dark:bg-purple-500/20' },
-  Late: { label: '遅参', icon: ClockIcon, color: 'text-blue-500', dim: false, bg: 'bg-blue-500/10 dark:bg-blue-500/20' },
+  Purchased: { label: '購入済', icon: CheckCircleIcon, color: 'text-green-600 dark:text-green-400', dim: true, bg: 'bg-green-500/20 dark:bg-green-500/30' },
+  SoldOut: { label: '売切', icon: XCircleIcon, color: 'text-red-600 dark:text-red-400', dim: true, bg: 'bg-red-500/20 dark:bg-red-500/30' },
+  Absent: { label: '欠席', icon: MinusCircleIcon, color: 'text-yellow-600 dark:text-yellow-400', dim: true, bg: 'bg-yellow-500/20 dark:bg-yellow-500/30' },
+  Postpone: { label: '後回し', icon: PauseCircleIcon, color: 'text-purple-600 dark:text-purple-400', dim: false, bg: 'bg-purple-500/20 dark:bg-purple-500/30' },
+  Late: { label: '遅参', icon: ClockIcon, color: 'text-blue-600 dark:text-blue-400', dim: false, bg: 'bg-blue-500/20 dark:bg-blue-500/30' },
 };
 
 
@@ -36,6 +37,7 @@ const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
   onDeleteRequest,
   isSelected,
   onSelectItem,
+  blockBackgroundColor,
 }) => {
   const [menuVisible, setMenuVisible] = useState(false);
   const longPressTimeout = useRef<number | null>(null);
@@ -112,8 +114,14 @@ const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
   const locationString = `${item.block}-${item.number}`;
   const IconComponent = currentStatus.icon;
 
+  // 未購入の場合はブロックベースの色を使用、それ以外は購入状態の色を優先
+  const isUnpurchased = item.purchaseStatus === 'None';
+  const useBlockColor = isUnpurchased && blockBackgroundColor;
+
   const baseBg = isSelected 
     ? 'bg-blue-100 dark:bg-blue-900/50'
+    : useBlockColor
+    ? blockBackgroundColor
     : isStriped
     ? 'bg-blue-50/50 dark:bg-slate-900/50'
     : 'bg-white dark:bg-slate-800';
@@ -124,7 +132,8 @@ const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
     ${currentStatus.dim ? 'opacity-60 dark:opacity-50' : 'opacity-100'}
   `;
   
-  const statusBgOverlay = `absolute inset-0 rounded-lg ${currentStatus.bg} pointer-events-none`;
+  // 未購入の場合はブロック色を使用するため、購入状態の背景色は適用しない
+  const statusBgOverlay = isUnpurchased ? '' : `absolute inset-0 rounded-lg ${currentStatus.bg} pointer-events-none`;
 
   return (
     <div 
@@ -136,7 +145,7 @@ const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
         onTouchMove={handlePointerLeave} // Cancel on scroll
     >
       {isSelected && <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-blue-500"></div>}
-      <div className={statusBgOverlay}></div>
+      {statusBgOverlay && <div className={statusBgOverlay}></div>}
       <div data-drag-handle className="relative p-3 flex flex-col items-center justify-start cursor-grab text-slate-400 dark:text-slate-500 border-r border-slate-200/80 dark:border-slate-700/80 space-y-2">
         <input
             type="checkbox"
