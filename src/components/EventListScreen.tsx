@@ -23,7 +23,7 @@ interface EventListScreenProps {
   onDelete: (name: string) => void;
   onExport: (name: string) => void;
   onUpdate?: (name: string) => void;
-  onRename?: (oldName: string, newName: string) => void;
+  onRename?: (oldName: string) => void;
 }
 
 const EventListScreen: React.FC<EventListScreenProps> = ({ eventNames, onSelect, onDelete, onExport, onUpdate, onRename }) => {
@@ -116,7 +116,7 @@ const EventListScreen: React.FC<EventListScreenProps> = ({ eventNames, onSelect,
                     )}
                     {onRename && (
                       <button 
-                          onClick={(e) => { e.stopPropagation(); onRename(name, name); setMenuVisibleFor(null); }}
+                          onClick={(e) => { e.stopPropagation(); onRename(name); setMenuVisibleFor(null); }}
                           className={`flex items-center space-x-2 px-4 py-2 text-sm text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50 transition-colors ${onUpdate ? '' : 'rounded-l-md'}`}
                       >
                           <span>✏️ 名称変更</span>
@@ -147,3 +147,4 @@ const EventListScreen: React.FC<EventListScreenProps> = ({ eventNames, onSelect,
 };
 
 export default EventListScreen;
+
