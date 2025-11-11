@@ -367,7 +367,7 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBulkAdd, activeEventName,
                         URLからインポート
                       </button>
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">シート名「品目表」のA列からF列とH列をインポートします</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">シート名「品目表」のM列からR列とW列をインポートします</p>
                   </div>
                   
                   {/* CSVファイルインポート */}
