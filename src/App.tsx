@@ -9,6 +9,7 @@ import ZoomControl from './components/ZoomControl';
 import BulkActionControls from './components/BulkActionControls';
 import UpdateConfirmationModal from './components/UpdateConfirmationModal';
 import UrlUpdateDialog from './components/UrlUpdateDialog';
+import EventRenameDialog from './components/EventRenameDialog';
 import SortAscendingIcon from './components/icons/SortAscendingIcon';
 import SortDescendingIcon from './components/icons/SortDescendingIcon';
 import { getItemKey, getItemKeyWithoutTitle, insertItemSorted } from './utils/itemComparison';
@@ -54,6 +55,8 @@ const App: React.FC = () => {
   const [updateEventName, setUpdateEventName] = useState<string | null>(null);
   const [showUrlUpdateDialog, setShowUrlUpdateDialog] = useState(false);
   const [pendingUpdateEventName, setPendingUpdateEventName] = useState<string | null>(null);
+  const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [eventToRename, setEventToRename] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -409,6 +412,69 @@ const App: React.FC = () => {
     }
   }, [activeEventName]);
 
+  const handleRenameEvent = useCallback((oldName: string, newName: string) => {
+    setEventToRename(oldName);
+    setShowRenameDialog(true);
+  }, []);
+
+  const handleConfirmRename = useCallback((newName: string) => {
+    if (!eventToRename) return;
+    
+    if (eventToRename === newName) {
+      setShowRenameDialog(false);
+      setEventToRename(null);
+      return;
+    }
+
+    if (eventLists[newName]) {
+      alert('その名前の即売会は既に存在します。別の名前を入力してください。');
+      return;
+    }
+
+    setEventLists(prev => {
+      const newLists = { ...prev };
+      if (newLists[eventToRename]) {
+        newLists[newName] = newLists[eventToRename];
+        delete newLists[eventToRename];
+      }
+      return newLists;
+    });
+
+    setEventMetadata(prev => {
+      const newMetadata = { ...prev };
+      if (newMetadata[eventToRename]) {
+        newMetadata[newName] = newMetadata[eventToRename];
+        delete newMetadata[eventToRename];
+      }
+      return newMetadata;
+    });
+
+    setDayModes(prev => {
+      const newModes = { ...prev };
+      if (newModes[eventToRename]) {
+        newModes[newName] = newModes[eventToRename];
+        delete newModes[eventToRename];
+      }
+      return newModes;
+    });
+
+    setExecuteModeItems(prev => {
+      const newItems = { ...prev };
+      if (newItems[eventToRename]) {
+        newItems[newName] = newItems[eventToRename];
+        delete newItems[eventToRename];
+      }
+      return newItems;
+    });
+
+    if (activeEventName === eventToRename) {
+      setActiveEventName(newName);
+    }
+
+    setShowRenameDialog(false);
+    setEventToRename(null);
+  }, [eventToRename, eventLists, activeEventName]);
+
   const handleSortToggle = () => {
     setSelectedItemIds(new Set());
     setBlockSortDirection(null);
@@ -697,7 +763,24 @@ const App: React.FC = () => {
     const headers = ['サークル名', '参加日', 'ブロック', 'ナンバー', 'タイトル', '頒布価格', '購入状態', '備考'];
     const csvRows = [headers.join(',')];
 
-    itemsToExport.forEach(item => {
+    // 実行列の並び順で各参加日別に並べ替え
+    const executeIdsDay1 = executeModeItems[eventName]?.day1 || [];
+    const executeIdsDay2 = executeModeItems[eventName]?.day2 || [];
+    const itemsMap = new Map(itemsToExport.map(item => [item.id, item]));
+    
+    // 1日目の実行列の順序でアイテムを取得
+    const day1Items = executeIdsDay1.map(id => itemsMap.get(id)).filter(Boolean) as ShoppingItem[];
+    // 2日目の実行列の順序でアイテムを取得
+    const day2Items = executeIdsDay2.map(id => itemsMap.get(id)).filter(Boolean) as ShoppingItem[];
+    
+    // 実行列に含まれていないアイテムを取得
+    const executeIdsSet = new Set([...executeIdsDay1, ...executeIdsDay2]);
+    const otherItems = itemsToExport.filter(item => !executeIdsSet.has(item.id));
+    
+    // 1日目、2日目、その他の順で結合
+    const sortedItems = [...day1Items, ...day2Items, ...otherItems];
+
+    sortedItems.forEach(item => {
       const row = [
         escapeCsvCell(item.circle),
         escapeCsvCell(item.eventDate),
@@ -722,7 +805,7 @@ const App: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  }, [eventLists]);
+  }, [eventLists, executeModeItems]);
 
   // アイテム更新機能
   const handleUpdateEvent = useCallback(async (eventName: string, urlOverride?: { url: string; sheetName: string }) => {
@@ -778,19 +861,19 @@ const App: React.FC = () => {
         }
         cells.push(currentCell);
 
-        // M列(12), N列(13), O列(14), P列(15)が全て入力されている行のみをインポート
-        const circle = cells[12]?.trim() || ''; // M列 (0-indexed: 12)
-        const eventDate = cells[13]?.trim() || ''; // N列 (0-indexed: 13)
-        const block = cells[14]?.trim() || ''; // O列 (0-indexed: 14)
-        const number = cells[15]?.trim() || ''; // P列 (0-indexed: 15)
+        // A列(0), B列(1), C列(2), D列(3)が全て入力されている行のみをインポート
+        const circle = cells[0]?.trim() || ''; // A列 (0-indexed: 0)
+        const eventDate = cells[1]?.trim() || ''; // B列 (0-indexed: 1)
+        const block = cells[2]?.trim() || ''; // C列 (0-indexed: 2)
+        const number = cells[3]?.trim() || ''; // D列 (0-indexed: 3)
         
         if (!circle || !eventDate || !block || !number) {
           continue;
         }
 
-        const title = cells[16]?.trim() || ''; // Q列 (0-indexed: 16)
-        const price = parseInt((cells[17] || '0').replace(/[^0-9]/g, ''), 10) || 0; // R列 (0-indexed: 17)
-        const remarks = cells[22]?.trim() || ''; // W列 (0-indexed: 22)
+        const title = cells[4]?.trim() || ''; // E列 (0-indexed: 4)
+        const price = parseInt((cells[5] || '0').replace(/[^0-9]/g, ''), 10) || 0; // F列 (0-indexed: 5)
+        const remarks = cells[7]?.trim() || ''; // H列 (0-indexed: 7)
 
         sheetItems.push({
           circle,
@@ -1169,6 +1252,7 @@ const App: React.FC = () => {
                 onDelete={handleDeleteEvent}
                 onExport={handleExportEvent}
                 onUpdate={handleUpdateEvent}
+                onRename={handleRenameEvent}
             />
         )}
         {activeTab === 'import' && (
@@ -1280,6 +1364,17 @@ const App: React.FC = () => {
         />
       )}
 
+      {showRenameDialog && eventToRename && (
+        <EventRenameDialog
+          currentName={eventToRename}
+          onConfirm={handleConfirmRename}
+          onCancel={() => {
+            setShowRenameDialog(false);
+            setEventToRename(null);
+          }}
+        />
+      )}
+
       {activeEventName && items.length > 0 && mainContentVisible && (
         <>
           {currentMode === 'execute' && <SummaryBar items={visibleItems} />}
@@ -1293,4 +1388,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-
