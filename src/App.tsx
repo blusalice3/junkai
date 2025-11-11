@@ -412,7 +412,7 @@ const App: React.FC = () => {
     }
   }, [activeEventName]);
 
-  const handleRenameEvent = useCallback((oldName: string, newName: string) => {
+  const handleRenameEvent = useCallback((oldName: string) => {
     setEventToRename(oldName);
     setShowRenameDialog(true);
   }, []);
@@ -1252,7 +1252,7 @@ const App: React.FC = () => {
                 onDelete={handleDeleteEvent}
                 onExport={handleExportEvent}
                 onUpdate={handleUpdateEvent}
-                onRename={handleRenameEvent}
+                onRename={(oldName) => handleRenameEvent(oldName)}
             />
         )}
         {activeTab === 'import' && (
