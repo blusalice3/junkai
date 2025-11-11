@@ -276,4 +276,4 @@ MIT License
 
 ## 謝辞
 
-このアプリはGoogle AI Studioを使用して開発されました。
+このアプリはGoogle AI StudioとCursorを使用して開発されました。
