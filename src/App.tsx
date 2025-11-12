@@ -14,10 +14,27 @@ import SortAscendingIcon from './components/icons/SortAscendingIcon';
 import SortDescendingIcon from './components/icons/SortDescendingIcon';
 import { getItemKey, getItemKeyWithoutTitle, insertItemSorted } from './utils/itemComparison';
 
-type ActiveTab = 'eventList' | 'day1' | 'day2' | 'import';
+type ActiveTab = 'eventList' | 'import' | string; // string部分は動的な参加日（例: '1日目', '2日目', '3日目'など）
 type SortState = 'Manual' | 'Postpone' | 'Late' | 'Absent' | 'SoldOut' | 'Purchased';
 export type BulkSortDirection = 'asc' | 'desc';
 type BlockSortDirection = 'asc' | 'desc';
+
+// データから参加日を抽出する関数
+const extractEventDates = (items: ShoppingItem[]): string[] => {
+  const eventDates = new Set<string>();
+  items.forEach(item => {
+    if (item.eventDate && item.eventDate.trim()) {
+      eventDates.add(item.eventDate.trim());
+    }
+  });
+  // 参加日をソート（数値部分でソート）
+  return Array.from(eventDates).sort((a, b) => {
+    const numA = parseInt(a.match(/\d+/)?.[0] || '0', 10);
+    const numB = parseInt(b.match(/\d+/)?.[0] || '0', 10);
+    if (numA !== numB) return numA - numB;
+    return a.localeCompare(b, 'ja');
+  });
+};
 
 const sortCycle: SortState[] = ['Postpone', 'Late', 'Absent', 'SoldOut', 'Purchased', 'Manual'];
 const sortLabels: Record<SortState, string> = {
@@ -99,12 +116,19 @@ const App: React.FC = () => {
 
   const items = useMemo(() => activeEventName ? eventLists[activeEventName] || [] : [], [activeEventName, eventLists]);
   
+  // 現在のイベントの参加日リストを取得
+  const eventDates = useMemo(() => extractEventDates(items), [items]);
+  
   const currentMode = useMemo(() => {
     if (!activeEventName) return 'execute';
     const modes = dayModes[activeEventName];
     if (!modes) return 'edit';
-    return activeTab === 'day1' ? modes.day1 : modes.day2;
-  }, [activeEventName, dayModes, activeTab]);
+    // activeTabが参加日（'1日目', '2日目'など）の場合
+    if (eventDates.includes(activeTab)) {
+      return modes[activeTab] || 'edit';
+    }
+    return 'edit';
+  }, [activeEventName, dayModes, activeTab, eventDates]);
 
   const handleBulkAdd = useCallback((eventName: string, newItemsData: Omit<ShoppingItem, 'id' | 'purchaseStatus'>[], metadata?: { url?: string; sheetName?: string }) => {
     const newItems: ShoppingItem[] = newItemsData.map(itemData => ({
@@ -137,13 +161,21 @@ const App: React.FC = () => {
 
     // 初期モードを編集モードに設定
     if (isNewEvent) {
+      const newEventDates = extractEventDates(newItems);
+      const initialDayModes: DayModeState = {};
+      const initialExecuteItems: ExecuteModeItems = {};
+      newEventDates.forEach(date => {
+        initialDayModes[date] = 'edit' as ViewMode;
+        initialExecuteItems[date] = [];
+      });
+      
       setDayModes(prev => ({
         ...prev,
-        [eventName]: { day1: 'edit' as ViewMode, day2: 'edit' as ViewMode }
+        [eventName]: initialDayModes
       }));
       setExecuteModeItems(prev => ({
         ...prev,
-        [eventName]: { day1: [], day2: [] }
+        [eventName]: initialExecuteItems
       }));
     }
 
@@ -154,12 +186,16 @@ const App: React.FC = () => {
     }
     
     if (newItems.length > 0) {
-        if (newItems.some(item => item.eventDate.includes('1日目'))) {
-            setActiveTab('day1');
-        } else if (newItems.some(item => item.eventDate.includes('2日目'))) {
-            setActiveTab('day2');
+        // 新しいアイテムの参加日を取得
+        const newEventDates = extractEventDates(newItems);
+        if (newEventDates.length > 0) {
+            setActiveTab(newEventDates[0]);
         } else {
-            setActiveTab('day1');
+            // 既存のイベントの場合、最初の参加日を選択
+            const currentEventDates = extractEventDates(eventLists[eventName] || []);
+            if (currentEventDates.length > 0) {
+                setActiveTab(currentEventDates[0]);
+            }
         }
     }
   }, [eventLists]);
@@ -177,14 +213,15 @@ const App: React.FC = () => {
     setSortState('Manual');
     setBlockSortDirection(null);
     
-    const currentDay = activeTab === 'day1' ? 'day1' : 'day2';
-    const mode = dayModes[activeEventName]?.[currentDay] || 'edit';
+    // activeTabが参加日（'1日目', '2日目'など）の場合
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
+    const mode = dayModes[activeEventName]?.[currentEventDate] || 'edit';
 
     if (mode === 'edit' && targetColumn === 'execute') {
       // 編集モード: 実行列内での並び替え
       setExecuteModeItems(prev => {
-        const eventItems = prev[activeEventName] || { day1: [], day2: [] };
-        const dayItems = [...eventItems[currentDay]];
+        const eventItems = prev[activeEventName] || {};
+        const dayItems = [...(eventItems[currentEventDate] || [])];
         
         if (selectedItemIds.has(dragId)) {
           // 複数選択時
@@ -197,7 +234,7 @@ const App: React.FC = () => {
           
           return {
             ...prev,
-            [activeEventName]: { ...eventItems, [currentDay]: listWithoutSelection }
+            [activeEventName]: { ...eventItems, [currentEventDate]: listWithoutSelection }
           };
         } else {
           // 単一アイテム
@@ -211,7 +248,7 @@ const App: React.FC = () => {
           
           return {
             ...prev,
-            [activeEventName]: { ...eventItems, [currentDay]: dayItems }
+            [activeEventName]: { ...eventItems, [currentEventDate]: dayItems }
           };
         }
       });
@@ -219,8 +256,8 @@ const App: React.FC = () => {
       // 編集モード: 候補リスト内での並び替え
       setEventLists(prev => {
         const allItems = [...(prev[activeEventName] || [])];
-        const currentTabKey = activeTab === 'day1' ? '1日目' : '2日目';
-        const executeIdsSet = new Set(executeModeItems[activeEventName]?.[currentDay] || []);
+        const currentTabKey = currentEventDate;
+        const executeIdsSet = new Set(executeModeItems[activeEventName]?.[currentEventDate] || []);
         
         // 候補リストのアイテムのみを取得
         const candidateItems = allItems.filter(item => 
@@ -308,16 +345,16 @@ const App: React.FC = () => {
         }
       });
     }
-  }, [activeEventName, selectedItemIds, activeTab, dayModes, executeModeItems]);
+  }, [activeEventName, selectedItemIds, activeTab, dayModes, executeModeItems, eventDates]);
 
   const handleMoveToExecuteColumn = useCallback((itemIds: string[]) => {
     if (!activeEventName) return;
     
-    const currentDay = activeTab === 'day1' ? 'day1' : 'day2';
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
     
     setExecuteModeItems(prev => {
-      const eventItems = prev[activeEventName] || { day1: [], day2: [] };
-      const currentDayItems = new Set(eventItems[currentDay]);
+      const eventItems = prev[activeEventName] || {};
+      const currentDayItems = new Set(eventItems[currentEventDate] || []);
       
       // 追加（重複は無視）
       itemIds.forEach(id => currentDayItems.add(id));
@@ -326,65 +363,64 @@ const App: React.FC = () => {
         ...prev,
         [activeEventName]: {
           ...eventItems,
-          [currentDay]: Array.from(currentDayItems)
+          [currentEventDate]: Array.from(currentDayItems)
         }
       };
     });
     
     setSelectedItemIds(new Set());
-  }, [activeEventName, activeTab]);
+  }, [activeEventName, activeTab, eventDates]);
 
   const handleRemoveFromExecuteColumn = useCallback((itemIds: string[]) => {
     if (!activeEventName) return;
     
-    const currentDay = activeTab === 'day1' ? 'day1' : 'day2';
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
     
     setExecuteModeItems(prev => {
-      const eventItems = prev[activeEventName] || { day1: [], day2: [] };
-      const currentDayItems = eventItems[currentDay].filter(id => !itemIds.includes(id));
+      const eventItems = prev[activeEventName] || {};
+      const currentDayItems = (eventItems[currentEventDate] || []).filter(id => !itemIds.includes(id));
       
       return {
         ...prev,
         [activeEventName]: {
           ...eventItems,
-          [currentDay]: currentDayItems
+          [currentEventDate]: currentDayItems
         }
       };
     });
     
     setSelectedItemIds(new Set());
-  }, [activeEventName, activeTab]);
+  }, [activeEventName, activeTab, eventDates]);
 
   const handleToggleMode = useCallback(() => {
     if (!activeEventName) return;
     
-    const currentDay = activeTab === 'day1' ? 'day1' : 'day2';
-    const currentModeValue = dayModes[activeEventName]?.[currentDay] || 'edit';
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
+    const currentModeValue = dayModes[activeEventName]?.[currentEventDate] || 'edit';
     const newMode: ViewMode = currentModeValue === 'edit' ? 'execute' : 'edit';
     
     setDayModes(prev => ({
       ...prev,
       [activeEventName]: {
-        ...(prev[activeEventName] || { day1: 'edit' as ViewMode, day2: 'edit' as ViewMode }),
-        [currentDay]: newMode
+        ...(prev[activeEventName] || {}),
+        [currentEventDate]: newMode
       }
     }));
     
     setSelectedItemIds(new Set());
     setCandidateNumberSortDirection(null);
-  }, [activeEventName, activeTab, dayModes]);
+  }, [activeEventName, activeTab, dayModes, eventDates]);
   
   const handleSelectEvent = useCallback((eventName: string) => {
     setActiveEventName(eventName);
     setSelectedItemIds(new Set());
     setSelectedBlockFilters(new Set());
     const eventItems = eventLists[eventName] || [];
-    if (eventItems.some(item => item.eventDate.includes('1日目'))){
-        setActiveTab('day1');
-    } else if (eventItems.some(item => item.eventDate.includes('2日目'))) {
-        setActiveTab('day2');
+    const dates = extractEventDates(eventItems);
+    if (dates.length > 0) {
+        setActiveTab(dates[0]);
     } else {
-        setActiveTab('day1');
+        setActiveTab('eventList');
     }
   }, [eventLists]);
 
@@ -490,12 +526,13 @@ const App: React.FC = () => {
     if (!activeEventName) return;
 
     const nextDirection = blockSortDirection === 'asc' ? 'desc' : 'asc';
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
 
     setEventLists(prev => {
       const allItems = [...(prev[activeEventName] || [])];
-      const currentTabKey = activeTab === 'day1' ? '1日目' : '2日目';
+      const currentTabKey = currentEventDate;
 
-      const itemsForTab = allItems.filter(item => item.eventDate.includes(currentTabKey));
+      const itemsForTab = allItems.filter(item => item.eventDate === currentTabKey);
       
       if (itemsForTab.length === 0) return prev;
 
@@ -509,7 +546,7 @@ const App: React.FC = () => {
 
       let sortedIndex = 0;
       const newItems = allItems.map(item => {
-          if (item.eventDate.includes(currentTabKey)) {
+          if (item.eventDate === currentTabKey) {
               return sortedItemsForTab[sortedIndex++];
           }
           return item;
@@ -526,16 +563,16 @@ const App: React.FC = () => {
     if (!activeEventName) return;
 
     const nextDirection = blockSortDirection === 'asc' ? 'desc' : 'asc';
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
 
     setEventLists(prev => {
       const allItems = [...(prev[activeEventName] || [])];
-      const currentTabKey = activeTab === 'day1' ? '1日目' : '2日目';
-      const currentDay = activeTab === 'day1' ? 'day1' : 'day2';
-      const executeIds = new Set(executeModeItems[activeEventName]?.[currentDay] || []);
+      const currentTabKey = currentEventDate;
+      const executeIds = new Set(executeModeItems[activeEventName]?.[currentEventDate] || []);
 
       // 候補リストのアイテムのみを取得
       const candidateItems = allItems.filter(item => 
-        item.eventDate.includes(currentTabKey) && !executeIds.has(item.id)
+        item.eventDate === currentTabKey && !executeIds.has(item.id)
       );
       
       if (candidateItems.length === 0) return prev;
@@ -550,12 +587,12 @@ const App: React.FC = () => {
 
       // 実行モード列のアイテムはそのまま、候補リストのアイテムのみ並び替え
       const executeItems = allItems.filter(item => 
-        item.eventDate.includes(currentTabKey) && executeIds.has(item.id)
+        item.eventDate === currentTabKey && executeIds.has(item.id)
       );
       
       // 実行モード列と候補リストを結合（実行モード列が先）
       const newItems = allItems.map(item => {
-        if (!item.eventDate.includes(currentTabKey)) {
+        if (item.eventDate !== currentTabKey) {
           return item;
         }
         if (executeIds.has(item.id)) {
@@ -596,12 +633,14 @@ const App: React.FC = () => {
       const eventItems = prev[activeEventName];
       if (!eventItems) return prev;
       
+      const updatedEventItems: ExecuteModeItems = {};
+      Object.keys(eventItems).forEach(eventDate => {
+        updatedEventItems[eventDate] = eventItems[eventDate].filter(id => id !== deletedId);
+      });
+      
       return {
         ...prev,
-        [activeEventName]: {
-          day1: eventItems.day1.filter(id => id !== deletedId),
-          day2: eventItems.day2.filter(id => id !== deletedId)
-        }
+        [activeEventName]: updatedEventItems
       };
     });
     
@@ -609,9 +648,15 @@ const App: React.FC = () => {
   };
 
   const handleDoneEditing = () => {
-    const originalDay = itemToEdit?.eventDate.includes('1日目') ? 'day1' : 'day2';
-    setItemToEdit(null);
-    setActiveTab(originalDay);
+    if (itemToEdit?.eventDate) {
+      setItemToEdit(null);
+      setActiveTab(itemToEdit.eventDate);
+    } else {
+      setItemToEdit(null);
+      if (eventDates.length > 0) {
+        setActiveTab(eventDates[0]);
+      }
+    }
   };
 
   const handleSelectItem = useCallback((itemId: string) => {
@@ -650,16 +695,16 @@ const App: React.FC = () => {
     if (!activeEventName) return;
     
     const nextDirection = candidateNumberSortDirection === 'asc' ? 'desc' : 'asc';
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
     
     setEventLists(prev => {
       const allItems = [...(prev[activeEventName] || [])];
-      const currentTabKey = activeTab === 'day1' ? '1日目' : '2日目';
-      const currentDay = activeTab === 'day1' ? 'day1' : 'day2';
-      const executeIds = new Set(executeModeItems[activeEventName]?.[currentDay] || []);
+      const currentTabKey = currentEventDate;
+      const executeIds = new Set(executeModeItems[activeEventName]?.[currentEventDate] || []);
 
       // 候補リストのアイテムのみを取得
       const candidateItems = allItems.filter(item => 
-        item.eventDate.includes(currentTabKey) && !executeIds.has(item.id)
+        item.eventDate === currentTabKey && !executeIds.has(item.id)
       );
       
       // ブロックフィルタを適用
@@ -684,7 +729,7 @@ const App: React.FC = () => {
       const candidateItemsToSort: { item: ShoppingItem; originalIndex: number; sortIndex: number }[] = [];
       
       allItems.forEach((item, index) => {
-        if (!item.eventDate.includes(currentTabKey)) {
+        if (item.eventDate !== currentTabKey) {
           otherItems.push(item);
         } else if (executeIds.has(item.id)) {
           otherItems.push(item);
@@ -704,7 +749,7 @@ const App: React.FC = () => {
       let candidateIndex = 0;
       
       allItems.forEach((item) => {
-        if (!item.eventDate.includes(currentTabKey)) {
+        if (item.eventDate !== currentTabKey) {
           resultItems.push(item);
         } else if (executeIds.has(item.id)) {
           resultItems.push(item);
@@ -723,7 +768,7 @@ const App: React.FC = () => {
 
     setCandidateNumberSortDirection(nextDirection);
     setSelectedItemIds(new Set());
-  }, [activeEventName, activeTab, executeModeItems, selectedBlockFilters, candidateNumberSortDirection]);
+  }, [activeEventName, activeTab, executeModeItems, selectedBlockFilters, candidateNumberSortDirection, eventDates]);
 
   const handleClearSelection = useCallback(() => {
     setSelectedItemIds(new Set());
@@ -733,12 +778,12 @@ const App: React.FC = () => {
     if (!activeEventName || selectedItemIds.size === 0) return;
     setSortState('Manual');
     setBlockSortDirection(null);
-    const currentDay = activeTab === 'day1' ? 'day1' : 'day2';
-    const mode = dayModes[activeEventName]?.[currentDay] || 'edit';
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
+    const mode = dayModes[activeEventName]?.[currentEventDate] || 'edit';
 
     if (mode === 'edit') {
       // 編集モード: 選択されたアイテムが実行モード列か候補リストかを判定
-      const executeIds = new Set(executeModeItems[activeEventName]?.[currentDay] || []);
+      const executeIds = new Set(executeModeItems[activeEventName]?.[currentEventDate] || []);
       const selectedItems = items.filter(item => selectedItemIds.has(item.id));
       const isInExecuteColumn = selectedItems.some(item => executeIds.has(item.id));
       const isInCandidateColumn = selectedItems.some(item => !executeIds.has(item.id));
@@ -746,8 +791,8 @@ const App: React.FC = () => {
       if (isInExecuteColumn && !isInCandidateColumn) {
         // 実行モード列のみ
         setExecuteModeItems(prev => {
-          const eventItems = prev[activeEventName] || { day1: [], day2: [] };
-          const dayItems = [...eventItems[currentDay]];
+          const eventItems = prev[activeEventName] || {};
+          const dayItems = [...(eventItems[currentEventDate] || [])];
           
           const itemsMap = new Map(items.map(item => [item.id, item]));
           const selectedItems = dayItems
@@ -767,18 +812,18 @@ const App: React.FC = () => {
           newDayItems.splice(firstSelectedIndex, 0, ...selectedItems.map(item => item.id));
           return {
             ...prev,
-            [activeEventName]: { ...eventItems, [currentDay]: newDayItems }
+            [activeEventName]: { ...eventItems, [currentEventDate]: newDayItems }
           };
         });
       } else if (isInCandidateColumn && !isInExecuteColumn) {
         // 候補リストのみ
         setEventLists(prev => {
           const allItems = [...(prev[activeEventName] || [])];
-          const currentTabKey = activeTab === 'day1' ? '1日目' : '2日目';
-          const executeIdsSet = new Set(executeModeItems[activeEventName]?.[currentDay] || []);
+          const currentTabKey = currentEventDate;
+          const executeIdsSet = new Set(executeModeItems[activeEventName]?.[currentEventDate] || []);
           
           const candidateItems = allItems.filter(item => 
-            item.eventDate.includes(currentTabKey) && !executeIdsSet.has(item.id)
+            item.eventDate === currentTabKey && !executeIdsSet.has(item.id)
           );
           const selectedCandidateItems = candidateItems.filter(item => selectedItemIds.has(item.id));
           const otherCandidateItems = candidateItems.filter(item => !selectedItemIds.has(item.id));
@@ -796,11 +841,11 @@ const App: React.FC = () => {
           
           // 実行モード列のアイテムはそのまま、候補リストのみ並び替え
           const executeItems = allItems.filter(item => 
-            item.eventDate.includes(currentTabKey) && executeIdsSet.has(item.id)
+            item.eventDate === currentTabKey && executeIdsSet.has(item.id)
           );
           
           const newItems = allItems.map(item => {
-            if (!item.eventDate.includes(currentTabKey)) {
+            if (item.eventDate !== currentTabKey) {
               return item;
             }
             if (executeIdsSet.has(item.id)) {
@@ -834,7 +879,7 @@ const App: React.FC = () => {
         return { ...prev, [activeEventName]: newItems };
       });
     }
-  }, [activeEventName, selectedItemIds, items, activeTab, dayModes, executeModeItems]);
+  }, [activeEventName, selectedItemIds, items, activeTab, dayModes, executeModeItems, eventDates]);
 
   const handleExportEvent = useCallback((eventName: string) => {
     const itemsToExport = eventLists[eventName];
@@ -864,21 +909,25 @@ const App: React.FC = () => {
     const csvRows = [headers.join(',')];
 
     // 実行列の並び順で各参加日別に並べ替え
-    const executeIdsDay1 = executeModeItems[eventName]?.day1 || [];
-    const executeIdsDay2 = executeModeItems[eventName]?.day2 || [];
+    const eventDatesForExport = extractEventDates(itemsToExport);
     const itemsMap = new Map(itemsToExport.map(item => [item.id, item]));
     
-    // 1日目の実行列の順序でアイテムを取得
-    const day1Items = executeIdsDay1.map(id => itemsMap.get(id)).filter(Boolean) as ShoppingItem[];
-    // 2日目の実行列の順序でアイテムを取得
-    const day2Items = executeIdsDay2.map(id => itemsMap.get(id)).filter(Boolean) as ShoppingItem[];
+    // 各参加日の実行列の順序でアイテムを取得
+    const sortedItemsByDate: ShoppingItem[] = [];
+    const executeIdsSet = new Set<string>();
+    
+    eventDatesForExport.forEach(eventDate => {
+      const executeIds = executeModeItems[eventName]?.[eventDate] || [];
+      executeIds.forEach(id => executeIdsSet.add(id));
+      const dayItems = executeIds.map(id => itemsMap.get(id)).filter(Boolean) as ShoppingItem[];
+      sortedItemsByDate.push(...dayItems);
+    });
     
     // 実行列に含まれていないアイテムを取得
-    const executeIdsSet = new Set([...executeIdsDay1, ...executeIdsDay2]);
     const otherItems = itemsToExport.filter(item => !executeIdsSet.has(item.id));
     
-    // 1日目、2日目、その他の順で結合
-    const sortedItems = [...day1Items, ...day2Items, ...otherItems];
+    // 参加日順、その他の順で結合
+    const sortedItems = [...sortedItemsByDate, ...otherItems];
 
     sortedItems.forEach(item => {
       const row = [
@@ -1099,13 +1148,15 @@ const App: React.FC = () => {
       if (!eventItems) return prev;
       
       const deleteIds = new Set(itemsToDelete.map(item => item.id));
+      const updatedEventItems: ExecuteModeItems = {};
+      
+      Object.keys(eventItems).forEach(eventDate => {
+        updatedEventItems[eventDate] = eventItems[eventDate].filter(id => !deleteIds.has(id));
+      });
       
       return {
         ...prev,
-        [eventName]: {
-          day1: eventItems.day1.filter(id => !deleteIds.has(id)),
-          day2: eventItems.day2.filter(id => !deleteIds.has(id))
-        }
+        [eventName]: updatedEventItems
       };
     });
 
@@ -1123,14 +1174,17 @@ const App: React.FC = () => {
     }
   }, [pendingUpdateEventName, handleUpdateEvent]);
   
-  const day1Items = useMemo(() => items.filter(item => item.eventDate.includes('1日目')), [items]);
-  const day2Items = useMemo(() => items.filter(item => item.eventDate.includes('2日目')), [items]);
+  // 現在のタブの参加日に該当するアイテムを取得
+  const currentTabItems = useMemo(() => {
+    if (!activeEventName || !eventDates.includes(activeTab)) return [];
+    return items.filter(item => item.eventDate === activeTab);
+  }, [items, activeTab, activeEventName, eventDates]);
 
   const TabButton: React.FC<{tab: ActiveTab, label: string, count?: number, onClick?: () => void}> = ({ tab, label, count, onClick }) => {
     const longPressTimeout = React.useRef<number | null>(null);
 
     const handlePointerDown = () => {
-      if (tab !== 'day1' && tab !== 'day2') return;
+      if (!eventDates.includes(tab)) return;
       if (!activeEventName) return;
       
       longPressTimeout.current = window.setTimeout(() => {
@@ -1180,19 +1234,19 @@ const App: React.FC = () => {
 
   const executeColumnItems = useMemo(() => {
     if (!activeEventName) return [];
-    const currentDay = activeTab === 'day1' ? 'day1' : 'day2';
-    const executeIds = executeModeItems[activeEventName]?.[currentDay] || [];
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
+    const executeIds = executeModeItems[activeEventName]?.[currentEventDate] || [];
     const itemsMap = new Map(items.map(item => [item.id, item]));
     return executeIds.map(id => itemsMap.get(id)).filter(Boolean) as ShoppingItem[];
-  }, [activeEventName, activeTab, executeModeItems, items]);
+  }, [activeEventName, activeTab, executeModeItems, items, eventDates]);
 
   const visibleItems = useMemo(() => {
-    const currentDay = activeTab === 'day1' ? 'day1' : 'day2';
-    const itemsForTab = activeTab === 'day1' ? day1Items : day2Items;
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
+    const itemsForTab = currentTabItems;
     
     if (!activeEventName) return itemsForTab;
     
-    const mode = dayModes[activeEventName]?.[currentDay] || 'edit';
+    const mode = dayModes[activeEventName]?.[currentEventDate] || 'edit';
     
     if (mode === 'execute') {
       // 実行モード: 実行列のアイテムのみ表示（編集モードで配置した順序を保持）
@@ -1204,15 +1258,14 @@ const App: React.FC = () => {
     
     // 編集モード: すべてのアイテムを表示（列分けはコンポーネント側で処理）
     return itemsForTab;
-  }, [activeTab, day1Items, day2Items, sortState, activeEventName, dayModes, executeColumnItems]);
+  }, [activeTab, currentTabItems, sortState, activeEventName, dayModes, executeColumnItems, eventDates]);
 
   // 候補リストから動的にブロック値を取得
   const availableBlocks = useMemo(() => {
     if (!activeEventName) return [];
-    const currentDay = activeTab === 'day1' ? 'day1' : 'day2';
-    const executeIds = new Set(executeModeItems[activeEventName]?.[currentDay] || []);
-    const itemsForTab = activeTab === 'day1' ? day1Items : day2Items;
-    const candidateItems = itemsForTab.filter(item => !executeIds.has(item.id));
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
+    const executeIds = new Set(executeModeItems[activeEventName]?.[currentEventDate] || []);
+    const candidateItems = currentTabItems.filter(item => !executeIds.has(item.id));
     const blocks = new Set(candidateItems.map(item => item.block).filter(Boolean));
     return Array.from(blocks).sort((a, b) => {
       const numA = Number(a);
@@ -1222,14 +1275,13 @@ const App: React.FC = () => {
       }
       return a.localeCompare(b, 'ja', { numeric: true, sensitivity: 'base' });
     });
-  }, [activeEventName, activeTab, executeModeItems, day1Items, day2Items]);
+  }, [activeEventName, activeTab, executeModeItems, currentTabItems, eventDates]);
 
   const candidateColumnItems = useMemo(() => {
     if (!activeEventName) return [];
-    const currentDay = activeTab === 'day1' ? 'day1' : 'day2';
-    const executeIds = new Set(executeModeItems[activeEventName]?.[currentDay] || []);
-    const itemsForTab = activeTab === 'day1' ? day1Items : day2Items;
-    let filtered = itemsForTab.filter(item => !executeIds.has(item.id));
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
+    const executeIds = new Set(executeModeItems[activeEventName]?.[currentEventDate] || []);
+    let filtered = currentTabItems.filter(item => !executeIds.has(item.id));
     
     // ブロックフィルタを適用
     if (selectedBlockFilters.size > 0) {
@@ -1237,27 +1289,25 @@ const App: React.FC = () => {
     }
     
     return filtered;
-  }, [activeEventName, activeTab, executeModeItems, day1Items, day2Items, selectedBlockFilters]);
+  }, [activeEventName, activeTab, executeModeItems, currentTabItems, selectedBlockFilters, eventDates]);
 
   // 候補リストのアイテムが選択されているかチェック
   const hasCandidateSelection = useMemo(() => {
     if (!activeEventName || currentMode !== 'edit' || selectedItemIds.size === 0) return false;
-    const currentDay = activeTab === 'day1' ? 'day1' : 'day2';
-    const executeIds = new Set(executeModeItems[activeEventName]?.[currentDay] || []);
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
+    const executeIds = new Set(executeModeItems[activeEventName]?.[currentEventDate] || []);
     const selectedItems = items.filter(item => selectedItemIds.has(item.id));
-    const itemsForTab = activeTab === 'day1' ? day1Items : day2Items;
-    return selectedItems.some(item => itemsForTab.includes(item) && !executeIds.has(item.id));
-  }, [activeEventName, activeTab, currentMode, selectedItemIds, items, executeModeItems, day1Items, day2Items]);
+    return selectedItems.some(item => currentTabItems.includes(item) && !executeIds.has(item.id));
+  }, [activeEventName, activeTab, currentMode, selectedItemIds, items, executeModeItems, currentTabItems, eventDates]);
 
   // 実行モード列のアイテムが選択されているかチェック
   const hasExecuteSelection = useMemo(() => {
     if (!activeEventName || currentMode !== 'edit' || selectedItemIds.size === 0) return false;
-    const currentDay = activeTab === 'day1' ? 'day1' : 'day2';
-    const executeIds = new Set(executeModeItems[activeEventName]?.[currentDay] || []);
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
+    const executeIds = new Set(executeModeItems[activeEventName]?.[currentEventDate] || []);
     const selectedItems = items.filter(item => selectedItemIds.has(item.id));
-    const itemsForTab = activeTab === 'day1' ? day1Items : day2Items;
-    return selectedItems.some(item => itemsForTab.includes(item) && executeIds.has(item.id));
-  }, [activeEventName, activeTab, currentMode, selectedItemIds, items, executeModeItems, day1Items, day2Items]);
+    return selectedItems.some(item => currentTabItems.includes(item) && executeIds.has(item.id));
+  }, [activeEventName, activeTab, currentMode, selectedItemIds, items, executeModeItems, currentTabItems, eventDates]);
 
   // 左右両列のアイテムが同時に選択されている場合は移動ボタンを表示しない
   const showMoveButtons = (hasCandidateSelection && !hasExecuteSelection) || (hasExecuteSelection && !hasCandidateSelection);
@@ -1266,7 +1316,7 @@ const App: React.FC = () => {
     return null;
   }
 
-  const mainContentVisible = activeTab === 'day1' || activeTab === 'day2';
+  const mainContentVisible = eventDates.includes(activeTab);
   
   const handleZoomChange = (newZoom: number) => {
     setZoomLevel(Math.max(30, Math.min(150, newZoom)));
@@ -1348,8 +1398,17 @@ const App: React.FC = () => {
                 <TabButton tab="eventList" label="即売会リスト" onClick={() => { setActiveEventName(null); setItemToEdit(null); setSelectedItemIds(new Set()); setSelectedBlockFilters(new Set()); setActiveTab('eventList'); }}/>
                 {activeEventName ? (
                     <>
-                        <TabButton tab="day1" label="1日目" count={day1Items.length} />
-                        <TabButton tab="day2" label="2日目" count={day2Items.length} />
+                        {eventDates.map(eventDate => {
+                          const count = items.filter(item => item.eventDate === eventDate).length;
+                          return (
+                            <TabButton 
+                              key={eventDate} 
+                              tab={eventDate} 
+                              label={eventDate} 
+                              count={count} 
+                            />
+                          );
+                        })}
                         <TabButton tab="import" label={itemToEdit ? "アイテム編集" : "アイテム追加"} />
                     </>
                 ) : (
@@ -1386,6 +1445,7 @@ const App: React.FC = () => {
              itemToEdit={itemToEdit}
              onUpdateItem={handleUpdateItem}
              onDoneEditing={handleDoneEditing}
+             availableEventDates={eventDates}
            />
         )}
         {activeEventName && mainContentVisible && (
@@ -1413,7 +1473,7 @@ const App: React.FC = () => {
                     onRemoveFromColumn={handleRemoveFromExecuteColumn}
                     onMoveToColumn={handleMoveToExecuteColumn}
                     columnType="execute"
-                    currentDay={activeTab === 'day1' ? 'day1' : 'day2'}
+                    currentDay={eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '')}
                   />
                 </div>
                 
@@ -1484,7 +1544,7 @@ const App: React.FC = () => {
                     onMoveToColumn={handleMoveToExecuteColumn}
                     onRemoveFromColumn={handleRemoveFromExecuteColumn}
                     columnType="candidate"
-                    currentDay={activeTab === 'day1' ? 'day1' : 'day2'}
+                    currentDay={eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '')}
                   />
                 </div>
               </div>
@@ -1498,7 +1558,7 @@ const App: React.FC = () => {
                 selectedItemIds={selectedItemIds}
                 onSelectItem={handleSelectItem}
                 columnType="execute"
-                currentDay={activeTab === 'day1' ? 'day1' : 'day2'}
+                currentDay={eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '')}
               />
             )}
           </div>
