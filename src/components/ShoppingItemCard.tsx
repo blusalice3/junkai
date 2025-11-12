@@ -8,7 +8,7 @@ import MinusCircleIcon from './icons/MinusCircleIcon';
 import PauseCircleIcon from './icons/PauseCircleIcon';
 import ClockIcon from './icons/ClockIcon';
 
-interface ShoppingItemCardProps {
+export interface ShoppingItemCardProps {
   item: ShoppingItem;
   onUpdate: (item: ShoppingItem) => void;
   isStriped: boolean;
