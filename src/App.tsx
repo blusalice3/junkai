@@ -1395,6 +1395,23 @@ const App: React.FC = () => {
     return filtered;
   }, [activeEventName, activeTab, executeModeItems, currentTabItems, selectedBlockFilters, eventDates]);
 
+  // 各ブロックの候補リスト内のアイテムの備考欄に「優先」または「委託無」が含まれているかをチェック
+  const blocksWithPriorityRemarks = useMemo(() => {
+    if (!activeEventName) return new Set<string>();
+    const currentEventDate = eventDates.includes(activeTab) ? activeTab : (eventDates[0] || '');
+    const executeIds = new Set(executeModeItems[activeEventName]?.[currentEventDate] || []);
+    const candidateItems = currentTabItems.filter(item => !executeIds.has(item.id));
+    
+    const blocksWithPriority = new Set<string>();
+    candidateItems.forEach(item => {
+      if (item.remarks && (item.remarks.includes('優先') || item.remarks.includes('委託無'))) {
+        blocksWithPriority.add(item.block);
+      }
+    });
+    
+    return blocksWithPriority;
+  }, [activeEventName, activeTab, executeModeItems, currentTabItems, eventDates]);
+
   // 候補リストのアイテムが選択されているかチェック
   const hasCandidateSelection = useMemo(() => {
     if (!activeEventName || currentMode !== 'edit' || selectedItemIds.size === 0) return false;
@@ -1622,6 +1639,8 @@ const App: React.FC = () => {
                               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                                 selectedBlockFilters.has(block)
                                   ? 'bg-blue-600 text-white dark:bg-blue-500'
+                                  : blocksWithPriorityRemarks.has(block)
+                                  ? 'bg-yellow-300 dark:bg-yellow-600 text-slate-700 dark:text-slate-300 hover:bg-yellow-400 dark:hover:bg-yellow-500 border border-slate-300 dark:border-slate-600'
                                   : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600'
                               }`}
                             >
