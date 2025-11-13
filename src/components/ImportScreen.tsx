@@ -110,24 +110,39 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBulkAdd, activeEventName,
     let spreadsheetUrl: string | undefined;
     const layoutInfo: Array<{ itemKey: string, eventDate: string, columnType: 'execute' | 'candidate', order: number }> = [];
     
-    // メタデータ行をチェック
+    // ヘッダー行とメタデータ行をスキップ
     let startIndex = 0;
-    if (lines.length > 0 && lines[0].startsWith('#METADATA')) {
-      const metadataCells = parseCSVLine(lines[0]);
-      if (metadataCells.length >= 3 && metadataCells[1] === 'spreadsheetUrl') {
-        spreadsheetUrl = metadataCells[2]?.trim();
-      }
+    
+    // 1行目がヘッダー行かチェック
+    if (lines.length > 0 && lines[0].includes('サークル名')) {
       startIndex = 1;
     }
     
-    // ヘッダー行をスキップ
-    if (lines.length > startIndex && lines[startIndex].includes('サークル名')) {
-      startIndex += 1;
+    // メタデータ行をチェック（ファイルの最後にある可能性がある）
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (lines[i].startsWith('#METADATA')) {
+        const metadataCells = parseCSVLine(lines[i]);
+        if (metadataCells.length >= 3 && metadataCells[1] === 'spreadsheetUrl') {
+          spreadsheetUrl = metadataCells[2]?.trim();
+        }
+        // メタデータ行は処理対象から除外（既にstartIndex以降の行を処理するので問題ない）
+        break;
+      }
     }
     
     for (let i = startIndex; i < lines.length; i++) {
       const line = lines[i];
       if (!line.trim()) continue;
+      
+      // メタデータ行をスキップ
+      if (line.startsWith('#METADATA')) {
+        continue;
+      }
+      
+      // ヘッダー行をスキップ（念のため再チェック）
+      if (line.includes('サークル名') && line.includes('参加日') && line.includes('ブロック')) {
+        continue;
+      }
       
       const cells = parseCSVLine(line);
       
@@ -224,7 +239,9 @@ const ImportScreen: React.FC<ImportScreenProps> = ({ onBulkAdd, activeEventName,
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-      alert(`${importResult.items.length}件のアイテムをインポートしました。${importResult.spreadsheetUrl ? 'スプレッドシートURLも保存されました。' : ''}`);
+      const urlMessage = importResult.spreadsheetUrl ? `スプレッドシートURLも保存されました。` : '';
+      const layoutMessage = importResult.layoutInfo && importResult.layoutInfo.length > 0 ? `配置情報も復元されました。` : '';
+      alert(`${importResult.items.length}件のアイテムをインポートしました。${urlMessage}${layoutMessage}`);
     } else {
       alert('インポートできるデータが見つかりませんでした。A列からD列の値が全て入力されている行が必要です。');
     }
